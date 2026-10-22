@@ -9,6 +9,17 @@ from backend.app import create_app
 from backend.recommender import DatasetError, MovieRecommender
 
 
+class MemoryWatchlistStore:
+    def __init__(self) -> None:
+        self.watchlists: dict[str, list[int]] = {}
+
+    def get_movie_ids(self, client_id: str) -> list[int]:
+        return self.watchlists.get(client_id, [])
+
+    def save_movie_ids(self, client_id: str, movie_ids: list[int]) -> None:
+        self.watchlists[client_id] = movie_ids
+
+
 @pytest.fixture
 def movie_data(tmp_path: Path) -> Path:
     movies = pd.DataFrame(
@@ -97,7 +108,14 @@ def test_optional_flask_frontend_serves_relative_standalone_assets(client) -> No
     assert page.status_code == 200
     assert b'href="style.css"' in page.data
     assert b'src="movies-data.js"' in page.data
-    for asset in ("style.css", "script.js", "movies-data.js"):
+    for asset in (
+        "config.js",
+        "style.css",
+        "script.js",
+        "model.js",
+        "movies-data.js",
+        "ratings-data.js",
+    ):
         assert client.get(f"/{asset}").status_code == 200
 
 
@@ -181,3 +199,74 @@ def test_stats_include_popularity_and_minimum_rating_threshold(client) -> None:
     assert response.json["minimum_rating_count"] == 2
     assert response.json["highly_rated"]
     assert response.json["genre_counts"]["Sci-Fi"] == 3
+
+
+def test_mongodb_watchlist_round_trip_and_validates_movie_ids(
+    movie_data: Path,
+) -> None:
+    store = MemoryWatchlistStore()
+    app = create_app(
+        data_dir=movie_data,
+        download_if_missing=False,
+        watchlist_store=store,
+    )
+    client = app.test_client()
+    client_id = "7a0d4f20-28f8-47d2-95d1-30b1577702fa"
+
+    assert client.get(f"/api/watchlist/{client_id}").json == {"movie_ids": []}
+    saved = client.put(
+        f"/api/watchlist/{client_id}",
+        json={"movie_ids": [2, 1, 2]},
+    )
+    assert saved.status_code == 200
+    assert saved.json == {"movie_ids": [2, 1], "saved": True}
+    assert client.get(f"/api/watchlist/{client_id}").json == {"movie_ids": [2, 1]}
+
+    assert client.put(
+        f"/api/watchlist/{client_id}",
+        json={"movie_ids": [999]},
+    ).status_code == 400
+    assert client.put(
+        f"/api/watchlist/{client_id}",
+        json={"movie_ids": [True]},
+    ).status_code == 400
+    assert client.put(
+        f"/api/watchlist/{client_id}",
+        json={"movie_ids": list(range(1, 502))},
+    ).status_code == 400
+
+
+def test_watchlist_requires_mongodb_configuration(
+    movie_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MONGODB_URI", raising=False)
+    app = create_app(data_dir=movie_data, download_if_missing=False)
+    response = app.test_client().get(
+        "/api/watchlist/7a0d4f20-28f8-47d2-95d1-30b1577702fa"
+    )
+    assert response.status_code == 503
+    assert response.json["error"]["code"] == "database_unavailable"
+
+
+def test_watchlist_cors_allows_only_configured_netlify_origin(
+    movie_data: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CORS_ALLOWED_ORIGINS", "https://cinematch-demo.netlify.app")
+    app = create_app(
+        data_dir=movie_data,
+        download_if_missing=False,
+        watchlist_store=MemoryWatchlistStore(),
+    )
+    client = app.test_client()
+    client_id = "7a0d4f20-28f8-47d2-95d1-30b1577702fa"
+
+    allowed = client.get(
+        f"/api/watchlist/{client_id}",
+        headers={"Origin": "https://cinematch-demo.netlify.app"},
+    )
+    denied = client.get(
+        f"/api/watchlist/{client_id}",
+        headers={"Origin": "https://untrusted.example"},
+    )
+    assert allowed.headers["Access-Control-Allow-Origin"] == "https://cinematch-demo.netlify.app"
+    assert "Access-Control-Allow-Origin" not in denied.headers

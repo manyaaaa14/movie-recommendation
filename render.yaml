@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cinematch-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 120 "backend.app:create_app()"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: MONGODB_DATABASE
+        value: cinematch
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: MONGODB_URI
+        sync: false

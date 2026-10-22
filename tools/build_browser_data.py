@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 from pathlib import Path
+import struct
 
 import pandas as pd
 
@@ -97,6 +99,39 @@ def build_bundle(data_dir: Path, output_path: Path) -> int:
             }
         )
 
+    movie_indices = {
+        int(movie_id): index for index, movie_id in enumerate(movies["movieId"])
+    }
+    ratings["userId"] = pd.to_numeric(ratings["userId"], errors="coerce")
+    ratings["rating"] = pd.to_numeric(ratings["rating"], errors="coerce")
+    ratings = ratings.dropna(subset=["userId", "rating", "movieId"]).copy()
+    ratings["userId"] = ratings["userId"].astype(int)
+    ratings["movieId"] = ratings["movieId"].astype(int)
+    ratings["movie_index"] = ratings["movieId"].map(movie_indices)
+    ratings = ratings.dropna(subset=["movie_index"]).copy()
+    if (
+        (ratings["userId"] < 1).any()
+        or (ratings["userId"] > 65535).any()
+        or len(records) > 65535
+    ):
+        raise ValueError("The compact browser rating format supports up to 65,535 users and movies.")
+    half_star_ratings = ratings["rating"] * 2
+    if not half_star_ratings.mod(1).eq(0).all() or not half_star_ratings.between(1, 10).all():
+        raise ValueError("MovieLens ratings must be in half-star increments from 0.5 to 5.")
+    binary_ratings = bytearray(len(ratings) * 5)
+    for row_index, (user_id, movie_index, rating) in enumerate(
+        ratings[["userId", "movie_index", "rating"]].itertuples(
+            index=False, name=None
+        )
+    ):
+        struct.pack_into(
+            "<HHB",
+            binary_ratings,
+            row_index * 5,
+            int(user_id),
+            int(movie_index),
+            int(round(float(rating) * 2)),
+        )
     latest_timestamp = int(ratings["timestamp"].max())
     recent_cutoff = latest_timestamp - 365 * 24 * 60 * 60
     recent_ratings = ratings.loc[ratings["timestamp"] >= recent_cutoff]
@@ -142,6 +177,10 @@ def build_bundle(data_dir: Path, output_path: Path) -> int:
             "minimum_rating_count": 50,
             "trending_basis": "Rating activity in the latest 365 days recorded in MovieLens.",
         },
+        "profile_users": [
+            {"user_id": int(user_id), "rating_count": int(count)}
+            for user_id, count in ratings.groupby("userId").size().nlargest(30).items()
+        ],
         "genres": sorted(genre_counts, key=str.casefold),
         "genre_counts": genre_counts,
         "trending": [
@@ -165,6 +204,17 @@ def build_bundle(data_dir: Path, output_path: Path) -> int:
         + ";\n",
         encoding="utf-8",
     )
+    ratings_output = output_path.with_name("ratings-data.js")
+    ratings_output.write_text(
+        "// MovieLens Latest Small ratings packed as little-endian uint16 user ID, "
+        "uint16 movie index, uint8 half-star rating.\n"
+        "window.CINEMATCH_RATINGS = {"
+        f'"count":{len(binary_ratings) // 5},'
+        f'"encoded":"{base64.b64encode(binary_ratings).decode("ascii")}"'
+        "};\n",
+        encoding="utf-8",
+    )
+    print(f"Wrote {len(ratings):,} MovieLens ratings to {ratings_output}")
     return len(records)
 
 

@@ -8,7 +8,10 @@
   <title>CineMatch — Movie Recommendation System</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
   <script src="movies-data.js" defer></script>
+  <script src="ratings-data.js" defer></script>
+  <script src="model.js" defer></script>
   <script src="script.js" defer></script>
 </head>
 <body>
@@ -60,6 +63,7 @@
       <div><span class="stat-value" id="stat-ratings">—</span><span class="stat-label">RATINGS</span></div>
       <div><span class="stat-value" id="stat-users">—</span><span class="stat-label">RATERS</span></div>
       <div><span class="stat-value" id="stat-average">—</span><span class="stat-label">AVERAGE RATING</span></div>
+      <div><span class="stat-value" id="stat-rmse">Training…</span><span class="stat-label">HOLDOUT RMSE</span></div>
     </section>
 
     <section class="section container" id="featured">
@@ -147,20 +151,44 @@
       <div class="movie-grid compact-grid" id="top-rated-grid"></div>
     </section>
 
+    <section class="section container recommendation-section ml-section" id="ml-recommendations">
+      <div class="section-heading">
+        <div><span class="section-kicker">TRAINED FROM REAL MOVIE RATINGS</span><h2>Personalized Movie Picks</h2></div>
+        <span class="model-status" id="model-status" role="status">Preparing ratings…</span>
+      </div>
+      <p class="model-intro">A matrix-factorization model learns from MovieLens user ratings, predicts ratings for unseen movies, and recommends the highest-scored titles.</p>
+      <div class="model-controls">
+        <label class="select-wrap profile-select">
+          <span class="visually-hidden">Choose an anonymized MovieLens user profile</span>
+          <select id="profile-select" disabled><option value="">Loading sample profiles…</option></select>
+        </label>
+        <button class="button button-primary" id="generate-recommendations" type="button" disabled>Generate ML Recommendations <span aria-hidden="true">→</span></button>
+      </div>
+      <div class="model-progress" id="model-progress" aria-live="polite">The model trains locally in your browser. No account or backend is used.</div>
+      <div class="recommendation-reference" id="ml-reference"></div>
+      <div class="movie-grid recommendation-grid" id="ml-recommendation-grid"></div>
+      <div class="empty-state hidden" id="ml-empty">
+        <h3>No recommendations yet</h3>
+        <p>Select an anonymized MovieLens user after training completes.</p>
+      </div>
+      <p class="demo-note">This is collaborative-filtering matrix factorization trained with stochastic gradient descent on observed ratings. Holdout RMSE and MAE evaluate predicted ratings on ratings excluded from training.</p>
+    </section>
+
     <section class="section container recommendation-section hidden" id="recommendations">
       <div class="section-heading">
-        <div><span class="section-kicker">CONTENT-BASED DISCOVERY</span><h2>Recommended For You</h2></div>
+        <div><span class="section-kicker">GENRES AND TAGS</span><h2>More Like This</h2></div>
         <button class="icon-button" id="close-recommendations" type="button" aria-label="Hide recommendations">×</button>
       </div>
       <div class="recommendation-note" id="recommendation-note"></div>
       <div class="recommendation-reference" id="recommendation-reference"></div>
       <div class="movie-grid recommendation-grid" id="recommendation-grid"></div>
-      <p class="demo-note">Recommendations are calculated by the Flask backend from MovieLens genre and tag features using TF-IDF and cosine similarity. They are content-based, not a trained predictive model.</p>
+      <p class="demo-note">These optional similar-title suggestions use genre and tag overlap. For trained rating-based recommendations, use Personalized Movie Picks above.</p>
     </section>
 
     <section class="section container watchlist-section" id="watchlist">
       <div class="section-heading">
         <div><span class="section-kicker">SAVED IN THIS BROWSER</span><h2>My Watchlist <span class="heading-count" id="watchlist-heading-count">0</span></h2></div>
+        <span class="cloud-sync-status" id="cloud-sync-status" role="status">Local watchlist</span>
       </div>
       <div class="movie-grid" id="watchlist-grid"></div>
       <div class="empty-state watchlist-empty" id="watchlist-empty">
@@ -176,19 +204,20 @@
         <div class="project-title">
           <span class="section-kicker">ABOUT THIS PROJECT</span>
           <h2>Movie discovery,<br><span>made explainable.</span></h2>
-          <p>A student project using a real public movie dataset and transparent content-based recommendations.</p>
+          <p>A student project with a locally trained rating-prediction model and a transparent MovieLens data pipeline.</p>
         </div>
         <dl class="project-details">
           <div><dt>Project Title</dt><dd>Movie Recommendation System Using Machine Learning</dd></div>
           <div><dt>Project Type</dt><dd>Full-stack academic project</dd></div>
           <div><dt>Programme</dt><dd>AI for Youth Program</dd></div>
           <div><dt>Semester</dt><dd>3rd Semester</dd></div>
-          <div><dt>Technologies</dt><dd>HTML, CSS, JavaScript, Flask, Pandas, NumPy, scikit-learn</dd></div>
+          <div><dt>Technologies</dt><dd>HTML, CSS, JavaScript, Python, Flask, Pandas, NumPy, scikit-learn</dd></div>
           <div><dt>Dataset</dt><dd>MovieLens Latest Small — movies, ratings, and tags from GroupLens.</dd></div>
-          <div><dt>Recommendation Method</dt><dd>Content-based TF-IDF feature vectors ranked using cosine similarity.</dd></div>
-          <div><dt>Approach distinction</dt><dd>This system uses content-based similarity. It is not classification, regression, or clustering.</dd></div>
+          <div><dt>Machine Learning Method</dt><dd>Collaborative filtering with user/movie latent factors trained by stochastic gradient descent on real MovieLens ratings.</dd></div>
+          <div><dt>Evaluation</dt><dd>Random held-out ratings, with RMSE and MAE reported by the trained model.</dd></div>
+          <div><dt>Extra Discovery</dt><dd>Content-based TF-IDF similarity remains available as a separate feature; it is not the rating-prediction model.</dd></div>
         </dl>
-        <div class="prototype-disclaimer"><span aria-hidden="true">ⓘ</span> Ratings, counts, genres, tags, and recommendations are read or calculated from the locally downloaded MovieLens dataset. Watchlists stay in this browser.</div>
+        <div class="prototype-disclaimer"><span aria-hidden="true">ⓘ</span> The model trains on anonymized dataset ratings in this browser. MovieLens user IDs are anonymous demo profiles, not accounts; watchlists stay in this browser.</div>
       </div>
     </section>
   </main>

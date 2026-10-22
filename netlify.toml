@@ -1,0 +1,18 @@
+[build]
+  command = "node tools/generate_netlify_config.js"
+  publish = "frontend"
+
+[[headers]]
+  for = "/movies-data.js"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/ratings-data.js"
+  [headers.values]
+    Cache-Control = "public, max-age=3600"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"

@@ -2,6 +2,8 @@
 const dataset = window.CINEMATCH_DATA;
 const PAGE_SIZE = 20;
 const WATCHLIST_KEY = "cinematch-watchlist-v1";
+const CLIENT_ID_KEY = "cinematch-cloud-client-id-v1";
+const API_BASE_URL = String(window.CINEMATCH_CONFIG?.apiBaseUrl || "").replace(/\/+$/, "");
 const genreFilter = document.querySelector("#genre-filter");
 const movieGrid = document.querySelector("#movie-grid");
 const watchlistGrid = document.querySelector("#watchlist-grid");
@@ -63,6 +65,25 @@ function saveWatchlist() {
     console.error("Could not save the watchlist.", error);
     showToast("Watchlist could not be saved in this browser.");
   }
+  syncWatchlistToCloud();
+}
+
+function getCloudClientId() {
+  try {
+    let clientId = localStorage.getItem(CLIENT_ID_KEY);
+    if (clientId) return clientId;
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
+    clientId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    localStorage.setItem(CLIENT_ID_KEY, clientId);
+    return clientId;
+  } catch (error) {
+    console.error("Could not create a browser-only cloud sync ID.", error);
+    return null;
+  }
 }
 
 function showToast(message) {
@@ -86,9 +107,11 @@ function ratingMarkup(movie) {
 function cardMarkup(movie, { recommendation = false } = {}) {
   const saved = watchlist.includes(movie.movie_id);
   const genre = movie.genres?.[0] || "Uncategorised";
-  const score = recommendation
-    ? `<span class="similarity-score">${(Number(movie.similarity) * 100).toFixed(1)}% match</span>`
-    : "";
+  const score = movie.predicted_rating != null
+    ? `<span class="prediction-rating">Predicted ★ ${Number(movie.predicted_rating).toFixed(2)} / 5</span>`
+    : recommendation
+      ? `<span class="similarity-score">${(Number(movie.similarity) * 100).toFixed(1)}% match</span>`
+      : "";
   return `<article class="movie-card" data-movie-id="${movie.movie_id}">
     <div class="poster-wrap">
       ${posterImageMarkup(movie)}
@@ -339,6 +362,162 @@ function renderWatchlist() {
   renderCards(watchlistGrid, watchlist.map(movieById).filter(Boolean));
 }
 
+let watchlistSyncQueue = Promise.resolve();
+
+function cloudSyncEnabled() {
+  return Boolean(API_BASE_URL) && window.location.protocol !== "file:";
+}
+
+function updateCloudSyncStatus(message, state = "") {
+  const status = document.querySelector("#cloud-sync-status");
+  status.textContent = message;
+  status.classList.toggle("connected", state === "connected");
+  status.classList.toggle("sync-error", state === "error");
+}
+
+function syncWatchlistToCloud() {
+  if (!cloudSyncEnabled()) return;
+  const clientId = getCloudClientId();
+  if (!clientId) {
+    updateCloudSyncStatus("Local only — browser storage unavailable", "error");
+    return;
+  }
+  const savedIds = [...watchlist];
+  watchlistSyncQueue = watchlistSyncQueue
+    .catch(() => {})
+    .then(async () => {
+      updateCloudSyncStatus("Syncing watchlist…");
+      const endpoint = `${API_BASE_URL}/watchlist/${clientId}`;
+      const response = await fetch(endpoint, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ movie_ids: savedIds })
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error?.message || `Cloud sync failed (${response.status}).`);
+      }
+      updateCloudSyncStatus("Synced to MongoDB", "connected");
+    })
+    .catch(error => {
+      updateCloudSyncStatus("Local watchlist — cloud unavailable", "error");
+      console.warn("Could not sync watchlist to the cloud; local storage remains active.", error);
+    });
+}
+
+async function restoreCloudWatchlist() {
+  if (!cloudSyncEnabled()) {
+    updateCloudSyncStatus("Local watchlist");
+    return;
+  }
+  const clientId = getCloudClientId();
+  if (!clientId) {
+    updateCloudSyncStatus("Local only — browser storage unavailable", "error");
+    return;
+  }
+  updateCloudSyncStatus("Checking MongoDB…");
+  try {
+    const response = await fetch(`${API_BASE_URL}/watchlist/${clientId}`, {
+      headers: { Accept: "application/json" }
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.error?.message || `Cloud sync failed (${response.status}).`);
+    }
+    const cloudIds = Array.isArray(result.movie_ids)
+      ? result.movie_ids.filter(id => Number.isInteger(id) && movieById(id))
+      : [];
+    watchlist = [...new Set([...cloudIds, ...watchlist])];
+    try {
+      localStorage.setItem(WATCHLIST_KEY, JSON.stringify(watchlist));
+    } catch (error) {
+      console.error("Could not update the local watchlist cache.", error);
+    }
+    renderWatchlist();
+    syncWatchlistToCloud();
+  } catch (error) {
+    updateCloudSyncStatus("Local watchlist — cloud unavailable", "error");
+    console.warn("Could not restore watchlist from MongoDB; local storage remains active.", error);
+  }
+}
+
+const ratingModel = globalThis.CineMatchModel?.createModel();
+
+function renderPersonalizedRecommendations() {
+  const select = document.querySelector("#profile-select");
+  const userId = Number(select.value);
+  const grid = document.querySelector("#ml-recommendation-grid");
+  const emptyState = document.querySelector("#ml-empty");
+  const reference = document.querySelector("#ml-reference");
+  if (!ratingModel || !ratingModel.hasRated(userId)) return;
+  const user = dataset.profile_users.find(profile => profile.user_id === userId);
+  const recommendations = ratingModel.recommend(userId, movies, 5);
+  reference.textContent =
+    `MovieLens demo user #${userId} · ${user.rating_count.toLocaleString()} real ratings used as profile context`;
+  if (!recommendations.length) {
+    grid.innerHTML = "";
+    emptyState.classList.remove("hidden");
+    return;
+  }
+  emptyState.classList.add("hidden");
+  renderCards(grid, recommendations);
+  recommendations.forEach((movie, index) => {
+    const explanation = document.createElement("p");
+    explanation.className = "recommendation-explanation";
+    explanation.textContent =
+      "Predicted from learned user and movie rating patterns; this is not an observed rating.";
+    grid.children[index].querySelector(".movie-info")
+      .insertBefore(explanation, grid.children[index].querySelector(".card-actions"));
+  });
+}
+
+async function trainRatingModel() {
+  const status = document.querySelector("#model-status");
+  const progress = document.querySelector("#model-progress");
+  const profileSelect = document.querySelector("#profile-select");
+  const generateButton = document.querySelector("#generate-recommendations");
+  if (!ratingModel || !globalThis.CINEMATCH_RATINGS) {
+    status.textContent = "Rating data unavailable";
+    progress.textContent =
+      "The local ratings-data.js or model.js file is missing. Keep all frontend files together and reload.";
+    return;
+  }
+  try {
+    const metrics = await ratingModel.train(
+      globalThis.CINEMATCH_RATINGS.encoded,
+      globalThis.CINEMATCH_RATINGS.count,
+      movies.length,
+      update => {
+        status.textContent = update.message;
+        progress.innerHTML = `${escapeHTML(update.message)} <progress max="100" value="${update.progress}">${update.progress}%</progress>`;
+      }
+    );
+    document.querySelector("#stat-rmse").textContent =
+      metrics.validation_rmse.toFixed(3);
+    document.querySelector("#stat-rmse").title =
+      `Holdout MAE: ${metrics.validation_mae.toFixed(3)} · Global-mean baseline RMSE: ${metrics.baseline_rmse.toFixed(3)}`;
+    status.textContent = "Trained model ready";
+    status.classList.add("ready");
+    progress.textContent =
+      `${metrics.algorithm} · ${metrics.training_ratings.toLocaleString()} training ratings · ` +
+      `${metrics.validation_ratings.toLocaleString()} held-out ratings · ` +
+      `RMSE ${metrics.validation_rmse.toFixed(3)} · MAE ${metrics.validation_mae.toFixed(3)} · ` +
+      `global-mean baseline RMSE ${metrics.baseline_rmse.toFixed(3)}.`;
+    profileSelect.innerHTML = dataset.profile_users
+      .filter(profile => ratingModel.hasRated(profile.user_id))
+      .map(profile =>
+        `<option value="${profile.user_id}">MovieLens user #${profile.user_id} · ${profile.rating_count.toLocaleString()} ratings</option>`
+      ).join("");
+    profileSelect.disabled = profileSelect.options.length === 0;
+    generateButton.disabled = profileSelect.disabled;
+    if (profileSelect.options.length) renderPersonalizedRecommendations();
+  } catch (error) {
+    status.textContent = "Model training failed";
+    progress.textContent = error.message;
+    console.error("Could not train the MovieLens rating model.", error);
+  }
+}
+
 function toggleWatchlist(id) {
   const movie = movieById(id);
   if (!movie) return;
@@ -428,6 +607,14 @@ document.querySelector("#featured-button").addEventListener("click", () => {
 document.querySelector("#close-recommendations").addEventListener("click", () => {
   document.querySelector("#recommendations").classList.add("hidden");
 });
+document.querySelector("#generate-recommendations").addEventListener(
+  "click",
+  renderPersonalizedRecommendations
+);
+document.querySelector("#profile-select").addEventListener(
+  "change",
+  renderPersonalizedRecommendations
+);
 document.querySelector("#retry-button").addEventListener("click", () => window.location.reload());
 document.querySelector("#dialog-close").addEventListener("click", () => dialog.close());
 dialog.addEventListener("click", event => {
@@ -468,6 +655,8 @@ function initialize() {
   renderStats();
   renderWatchlist();
   loadMovies();
+  restoreCloudWatchlist();
+  trainRatingModel();
 }
 
 initialize();
