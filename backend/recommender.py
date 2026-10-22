@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import re
 import shutil
+import ssl
 import subprocess
 import tempfile
 import urllib.error
@@ -55,55 +56,67 @@ class MovieRecommender:
             ]
             raise DatasetError(f"MovieLens files are missing: {', '.join(missing)}")
 
+        archive_data = None
+        request = urllib.request.Request(
+            DATASET_URL, headers={"User-Agent": "Mozilla/5.0 CineMatch student project"}
+        )
         try:
-            request = urllib.request.Request(
-                DATASET_URL, headers={"User-Agent": "CineMatch student project"}
-            )
-            with urllib.request.urlopen(request, timeout=30) as response:
-                archive_data = response.read()
-        except (urllib.error.URLError, TimeoutError, OSError) as download_error:
-            curl = shutil.which("curl.exe") or shutil.which("curl")
-            if curl is None:
-                raise DatasetError(
-                    "Could not download MovieLens Latest Small. Check your internet "
-                    f"connection. Details: {download_error}"
-                ) from download_error
             try:
-                with tempfile.TemporaryDirectory(dir=self.data_dir) as temporary_dir:
-                    archive_path = Path(temporary_dir) / "movielens.zip"
-                    result = subprocess.run(
-                        [
-                            curl,
-                            "--fail",
-                            "--location",
-                            "--silent",
-                            "--show-error",
-                            "--retry",
-                            "2",
-                            "--connect-timeout",
-                            "15",
-                            "--max-time",
-                            "90",
-                            "--output",
-                            str(archive_path),
-                            DATASET_URL,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                        check=False,
-                    )
-                    if result.returncode != 0:
-                        raise DatasetError(
-                            "MovieLens download failed using both Python HTTPS and "
-                            f"curl. Python: {download_error}; curl: {result.stderr.strip()}"
+                import certifi
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                ssl_context = ssl.create_default_context()
+            with urllib.request.urlopen(request, timeout=30, context=ssl_context) as response:
+                archive_data = response.read()
+        except Exception as initial_error:
+            try:
+                unverified_context = ssl._create_unverified_context()
+                with urllib.request.urlopen(request, timeout=30, context=unverified_context) as response:
+                    archive_data = response.read()
+            except Exception as download_error:
+                curl = shutil.which("curl.exe") or shutil.which("curl")
+                if curl is None:
+                    raise DatasetError(
+                        "Could not download MovieLens Latest Small. Check your internet connection. "
+                        f"Details: {download_error}"
+                    ) from download_error
+                try:
+                    with tempfile.TemporaryDirectory(dir=self.data_dir) as temporary_dir:
+                        archive_path = Path(temporary_dir) / "movielens.zip"
+                        result = subprocess.run(
+                            [
+                                curl,
+                                "--fail",
+                                "--location",
+                                "--insecure",
+                                "--silent",
+                                "--show-error",
+                                "--retry",
+                                "3",
+                                "--connect-timeout",
+                                "15",
+                                "--max-time",
+                                "90",
+                                "--output",
+                                str(archive_path),
+                                DATASET_URL,
+                            ],
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                            check=False,
                         )
-                    archive_data = archive_path.read_bytes()
-            except (OSError, subprocess.TimeoutExpired) as curl_error:
-                raise DatasetError(
-                    "MovieLens download failed using both Python HTTPS and curl. "
-                    f"Python: {download_error}; curl: {curl_error}"
-                ) from curl_error
+                        if result.returncode != 0:
+                            raise DatasetError(
+                                "MovieLens download failed using both Python HTTPS and curl. "
+                                f"Python: {download_error}; curl: {result.stderr.strip()}"
+                            )
+                        archive_data = archive_path.read_bytes()
+                except (OSError, subprocess.TimeoutExpired) as curl_error:
+                    raise DatasetError(
+                        "MovieLens download failed using both Python HTTPS and curl. "
+                        f"Python: {download_error}; curl: {curl_error}"
+                    ) from curl_error
 
         try:
             with tempfile.TemporaryDirectory(dir=self.data_dir) as temporary_dir:

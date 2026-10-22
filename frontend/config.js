@@ -5,8 +5,7 @@ const isLocalDevServer =
 const isFlaskPort = typeof window !== "undefined" && window.location.port === "5000";
 
 window.CINEMATCH_CONFIG = {
-  apiBaseUrl:
-    isLocalDevServer && !isFlaskPort
-      ? "http://127.0.0.1:5000/api"
-      : "/api"
+  apiBaseUrl: isLocalDevServer
+    ? (isFlaskPort ? "/api" : "http://127.0.0.1:5000/api")
+    : "https://movie-recommendation-dzws.onrender.com/api"
 };

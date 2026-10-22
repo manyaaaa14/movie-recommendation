@@ -77,15 +77,19 @@ def create_app(
         "http://127.0.0.1:8000",
     }
 
+    allow_all_origins = "*" in configured_origins
+
     @app.after_request
     def configure_cors(response: Any) -> Any:
         origin = request.headers.get("Origin", "").rstrip("/")
-        if origin in allowed_origins:
+        if origin and (allow_all_origins or origin in allowed_origins):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Methods"] = "GET, PUT, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type"
             response.headers["Access-Control-Max-Age"] = "600"
             response.headers.add("Vary", "Origin")
+        elif not origin and allow_all_origins:
+            response.headers["Access-Control-Allow-Origin"] = "*"
         return response
 
     def error_response(
