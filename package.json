@@ -5,6 +5,7 @@
   "description": "CineMatch Movie Recommendation System",
   "scripts": {
     "start": "gunicorn --workers 1 --threads 4 --timeout 120 \"backend.app:create_app()\"",
-    "build": "pip install -r backend/requirements.txt"
+    "build": "node tools/build_dist.js",
+    "build:dist": "node tools/build_dist.js"
   }
 }

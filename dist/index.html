@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#090a12">
+  <meta name="description" content="Explore real MovieLens movies and find content-based recommendations, right in your browser.">
+  <title>CineMatch — Movie Recommendation System</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js" defer></script>
+  <script src="movies-data.js" defer></script>
+  <script src="ratings-data.js" defer></script>
+  <script src="model.js" defer></script>
+  <script src="script.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar container" aria-label="Main navigation">
+      <a class="brand" href="#home" aria-label="CineMatch home">
+        <span class="brand-mark" aria-hidden="true">C</span>
+        <span>Cine<span class="brand-accent">Match</span></span>
+      </a>
+      <button class="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation menu" aria-expanded="false">☰</button>
+      <div class="nav-links" id="nav-links">
+        <a class="nav-link active" href="#home">Home</a>
+        <a class="nav-link" href="#explore">Explore Movies</a>
+        <a class="nav-link" href="#genres">Genres</a>
+        <a class="nav-link watchlist-nav" href="#watchlist">My Watchlist <span class="watchlist-count" id="watchlist-count">0</span></a>
+      </div>
+      <a class="profile-chip" href="#project-info" aria-label="Project information">
+        <span class="avatar">CM</span><span class="profile-name">MovieLens demo</span>
+      </a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="home">
+      <div class="hero-shade"></div>
+      <div class="container hero-content">
+        <div class="eyebrow"><span class="live-dot"></span> REAL MOVIES. THOUGHTFUL DISCOVERIES.</div>
+        <h1>Discover Your Next<br><span>Favourite Movie</span></h1>
+        <p class="hero-copy">Explore MovieLens titles and find a film that fits your taste.</p>
+        <form class="hero-search" id="hero-search-form" role="search">
+          <span class="search-icon" aria-hidden="true">⌕</span>
+          <label class="visually-hidden" for="hero-search">Search movies</label>
+          <input id="hero-search" type="search" placeholder="Search real movie titles..." autocomplete="off">
+          <button class="button button-primary" type="submit">Search <span aria-hidden="true">→</span></button>
+        </form>
+        <a class="button button-ghost hero-explore" href="#explore">Explore Movies <span aria-hidden="true">↓</span></a>
+      </div>
+      <div class="hero-caption container"><span>MOVIELENS LATEST SMALL</span><span class="caption-line"></span><span id="hero-dataset-caption">LOADING DATASET...</span></div>
+    </section>
+
+    <section class="container api-banner" id="api-banner" role="status" hidden>
+      <span class="api-banner-icon" aria-hidden="true">!</span>
+      <div><strong>Local movie data could not be loaded.</strong><p id="api-banner-message">Check that the bundled data file is beside this page.</p></div>
+      <button class="button button-ghost" id="retry-button" type="button">Retry</button>
+    </section>
+
+    <section class="section container stats-strip" id="dataset-stats" aria-label="MovieLens dataset statistics">
+      <div><span class="stat-value" id="stat-movies">—</span><span class="stat-label">MOVIES</span></div>
+      <div><span class="stat-value" id="stat-ratings">—</span><span class="stat-label">RATINGS</span></div>
+      <div><span class="stat-value" id="stat-users">—</span><span class="stat-label">RATERS</span></div>
+      <div><span class="stat-value" id="stat-average">—</span><span class="stat-label">AVERAGE RATING</span></div>
+      <div><span class="stat-value" id="stat-rmse">Training…</span><span class="stat-label">HOLDOUT RMSE</span></div>
+    </section>
+
+    <section class="section container" id="featured">
+      <div class="featured-card">
+        <div class="featured-image" role="img" aria-label="Cinematic desert landscape"></div>
+        <div class="featured-overlay"></div>
+        <div class="featured-content">
+          <span class="section-kicker">FROM THE MOVIELENS COLLECTION</span>
+          <h2>Every great movie<br>starts with a discovery.</h2>
+          <p id="featured-copy">Browse real films rated by the MovieLens community and discover your next favourite.</p>
+          <button class="button button-primary" id="featured-button" type="button">Explore the collection <span aria-hidden="true">→</span></button>
+        </div>
+        <div class="featured-badge"><span>✦</span> DATA-DRIVEN</div>
+      </div>
+    </section>
+
+    <section class="section container" id="explore">
+      <div class="section-heading">
+        <div><span class="section-kicker">THE MOVIELENS CATALOGUE</span><h2>Explore Movies</h2></div>
+        <span class="results-count" id="results-count" aria-live="polite"></span>
+      </div>
+      <div class="filter-bar">
+        <label class="filter-search">
+          <span aria-hidden="true">⌕</span>
+          <span class="visually-hidden">Search movie titles</span>
+          <input id="movie-search" type="search" placeholder="Find a movie...">
+        </label>
+        <label class="select-wrap">
+          <span class="visually-hidden">Filter by genre</span>
+          <select id="genre-filter"><option value="">All genres</option></select>
+        </label>
+        <label class="select-wrap">
+          <span class="visually-hidden">Sort movies</span>
+          <select id="sort-filter">
+            <option value="popular">Most rated</option>
+            <option value="rating">Highest rated</option>
+            <option value="year">Newest first</option>
+            <option value="title">Title A–Z</option>
+          </select>
+        </label>
+        <button class="button button-reset" id="reset-filters" type="button">Reset filters</button>
+      </div>
+      <div class="movie-grid" id="movie-grid" aria-live="polite"></div>
+      <div class="empty-state hidden" id="search-empty">
+        <span class="empty-icon" aria-hidden="true">⌕</span>
+        <h3>No movies found</h3>
+        <p>Try another title or change your filters to discover something new.</p>
+        <button class="button button-ghost" id="empty-reset" type="button">Clear filters</button>
+      </div>
+      <div class="pagination" id="pagination" hidden>
+        <button class="button button-ghost" id="previous-page" type="button">← Previous</button>
+        <span id="page-label"></span>
+        <button class="button button-ghost" id="next-page" type="button">Next →</button>
+      </div>
+    </section>
+
+    <section class="section container" id="trending">
+      <div class="section-heading">
+        <div><span class="section-kicker">RECENT RATING ACTIVITY</span><h2>Trending Movies</h2></div>
+        <span class="results-count">Based on MovieLens timestamps</span>
+      </div>
+      <div class="trending-row" id="trending-row"></div>
+    </section>
+
+    <section class="section container" id="popular">
+      <div class="section-heading">
+        <div><span class="section-kicker">COMMUNITY FAVOURITES</span><h2>Popular Movies</h2></div>
+        <span class="results-count">Ranked by number of ratings</span>
+      </div>
+      <div class="trending-row" id="popular-row"></div>
+    </section>
+
+    <section class="section container genres-section" id="genres">
+      <div class="section-heading">
+        <div><span class="section-kicker">PICK YOUR MOOD</span><h2>Popular Genres</h2></div>
+      </div>
+      <div class="genre-pills" id="genre-pills"></div>
+    </section>
+
+    <section class="section container" id="top-rated">
+      <div class="section-heading">
+        <div><span class="section-kicker">RATINGS WITH A MEANINGFUL SAMPLE</span><h2>Highly Rated Movies</h2></div>
+        <span class="results-count" id="rating-threshold"></span>
+      </div>
+      <div class="movie-grid compact-grid" id="top-rated-grid"></div>
+    </section>
+
+    <section class="section container recommendation-section ml-section" id="ml-recommendations">
+      <div class="section-heading">
+        <div><span class="section-kicker">TRAINED FROM REAL MOVIE RATINGS</span><h2>Personalized Movie Picks</h2></div>
+        <span class="model-status" id="model-status" role="status">Preparing ratings…</span>
+      </div>
+      <p class="model-intro">A matrix-factorization model learns from MovieLens user ratings, predicts ratings for unseen movies, and recommends the highest-scored titles.</p>
+      <div class="model-controls">
+        <label class="select-wrap profile-select">
+          <span class="visually-hidden">Choose an anonymized MovieLens user profile</span>
+          <select id="profile-select" disabled><option value="">Loading sample profiles…</option></select>
+        </label>
+        <button class="button button-primary" id="generate-recommendations" type="button" disabled>Generate ML Recommendations <span aria-hidden="true">→</span></button>
+      </div>
+      <div class="model-progress" id="model-progress" aria-live="polite">The model trains locally in your browser. No account or backend is used.</div>
+      <div class="recommendation-reference" id="ml-reference"></div>
+      <div class="movie-grid recommendation-grid" id="ml-recommendation-grid"></div>
+      <div class="empty-state hidden" id="ml-empty">
+        <h3>No recommendations yet</h3>
+        <p>Select an anonymized MovieLens user after training completes.</p>
+      </div>
+      <p class="demo-note">This is collaborative-filtering matrix factorization trained with stochastic gradient descent on observed ratings. Holdout RMSE and MAE evaluate predicted ratings on ratings excluded from training.</p>
+    </section>
+
+    <section class="section container recommendation-section hidden" id="recommendations">
+      <div class="section-heading">
+        <div><span class="section-kicker">GENRES AND TAGS</span><h2>More Like This</h2></div>
+        <button class="icon-button" id="close-recommendations" type="button" aria-label="Hide recommendations">×</button>
+      </div>
+      <div class="recommendation-note" id="recommendation-note"></div>
+      <div class="recommendation-reference" id="recommendation-reference"></div>
+      <div class="movie-grid recommendation-grid" id="recommendation-grid"></div>
+      <p class="demo-note">These optional similar-title suggestions use genre and tag overlap. For trained rating-based recommendations, use Personalized Movie Picks above.</p>
+    </section>
+
+    <section class="section container watchlist-section" id="watchlist">
+      <div class="section-heading">
+        <div><span class="section-kicker">SAVED IN THIS BROWSER</span><h2>My Watchlist <span class="heading-count" id="watchlist-heading-count">0</span></h2></div>
+        <span class="cloud-sync-status" id="cloud-sync-status" role="status">Local watchlist</span>
+      </div>
+      <div class="movie-grid" id="watchlist-grid"></div>
+      <div class="empty-state watchlist-empty" id="watchlist-empty">
+        <span class="empty-icon" aria-hidden="true">♡</span>
+        <h3>Your watchlist is waiting</h3>
+        <p>Save movies you love and they’ll be right here when you return.</p>
+        <a class="button button-ghost" href="#explore">Browse movies</a>
+      </div>
+    </section>
+
+    <section class="project-section" id="project-info">
+      <div class="container project-inner">
+        <div class="project-title">
+          <span class="section-kicker">ABOUT THIS PROJECT</span>
+          <h2>Movie discovery,<br><span>made explainable.</span></h2>
+          <p>A student project with a locally trained rating-prediction model and a transparent MovieLens data pipeline.</p>
+        </div>
+        <dl class="project-details">
+          <div><dt>Project Title</dt><dd>Movie Recommendation System Using Machine Learning</dd></div>
+          <div><dt>Project Type</dt><dd>Full-stack academic project</dd></div>
+          <div><dt>Programme</dt><dd>AI for Youth Program</dd></div>
+          <div><dt>Semester</dt><dd>3rd Semester</dd></div>
+          <div><dt>Technologies</dt><dd>HTML, CSS, JavaScript, Python, Flask, Pandas, NumPy, scikit-learn</dd></div>
+          <div><dt>Dataset</dt><dd>MovieLens Latest Small — movies, ratings, and tags from GroupLens.</dd></div>
+          <div><dt>Machine Learning Method</dt><dd>Collaborative filtering with user/movie latent factors trained by stochastic gradient descent on real MovieLens ratings.</dd></div>
+          <div><dt>Evaluation</dt><dd>Random held-out ratings, with RMSE and MAE reported by the trained model.</dd></div>
+          <div><dt>Extra Discovery</dt><dd>Content-based TF-IDF similarity remains available as a separate feature; it is not the rating-prediction model.</dd></div>
+        </dl>
+        <div class="prototype-disclaimer"><span aria-hidden="true">ⓘ</span> The model trains on anonymized dataset ratings in this browser. MovieLens user IDs are anonymous demo profiles, not accounts; watchlists stay in this browser.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <a class="brand" href="#home"><span class="brand-mark" aria-hidden="true">C</span><span>Cine<span class="brand-accent">Match</span></span></a>
+      <p>Movie metadata and ratings: MovieLens Latest Small, GroupLens Research.</p>
+      <span>Educational project · No account required</span>
+    </div>
+  </footer>
+
+  <dialog class="movie-dialog" id="movie-dialog" aria-labelledby="dialog-title">
+    <button class="dialog-close icon-button" id="dialog-close" type="button" aria-label="Close movie details">×</button>
+    <div id="dialog-content"></div>
+  </dialog>
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+</body>
+</html>

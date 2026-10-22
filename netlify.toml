@@ -1,6 +1,6 @@
 [build]
-  command = "node tools/generate_netlify_config.js"
-  publish = "frontend"
+  command = "node tools/build_dist.js"
+  publish = "dist"
 
 [[headers]]
   for = "/movies-data.js"

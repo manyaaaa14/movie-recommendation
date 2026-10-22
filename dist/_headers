@@ -1,0 +1,6 @@
+/movies-data.js
+  Cache-Control: public, max-age=3600
+/ratings-data.js
+  Cache-Control: public, max-age=3600
+/*.js
+  X-Content-Type-Options: nosniff
